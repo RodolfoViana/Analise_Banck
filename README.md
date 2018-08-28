@@ -1,4 +1,4 @@
-# Analise_Banck
+# Analise_Bank
 
 Para a análise eu utilizei as seguintes bibliotecas em R 
 
