@@ -1,0 +1,238 @@
+---
+title: "Analise_Bank"
+output: html_document
+---
+
+Análise realizada utilizando as informações que estão no dataset https://archive.ics.uci.edu/ml/datasets/bank+marketing
+
+Bibliotecas Necessárias
+
+```{r, message=FALSE, warning=FALSE}
+# Importando 
+library(dplyr)
+library(ggplot2)
+library(caret)
+```
+
+Importando os dados
+
+```{r, message=FALSE, warning=FALSE}
+# Importando os dados
+dados <- read.csv("bank-full.csv", sep=";")
+```
+
+
+## Explorando os dados
+
+Top 6 observações
+```{r, message=FALSE, warning=FALSE}
+# Visualizando as 6 primeiras observações
+head(dados)
+```
+
+Nomes das colunas 
+
+```{r, message=FALSE, warning=FALSE}
+colnames(dados)
+```
+
+Verificando se todas as linhas estão completas, ou seja, sem NULL
+
+```{r, message=FALSE, warning=FALSE}
+sum(!complete.cases(dados))
+```
+
+Visão geral dos dados
+
+```{r, message=FALSE, warning=FALSE}
+summary(dados)
+```
+
+## Gerando Insights
+
+##### Insight 1
+
+Na base de dados é possível obter a informação da profissão do correntista. Como que esses dados estão distribuidos? Qual a profissão mais recorrente?
+
+```{r, message=FALSE, warning=FALSE}
+to_Plot <- as.data.frame(table(dados$job))
+colnames(to_Plot) <- c("Job", "Qtd")
+
+ggplot(to_Plot, aes(x = Job, y = Qtd)) + 
+  geom_bar(stat = "identity") +
+  labs(title = "Job") +
+  theme_classic() + 
+  coord_flip()
+```
+
+A profissão que mais aparece nesse Bank é blue-collar, seguida por management e techinician. 
+
+##### Insight 2
+
+Será que a blue-collar é a profissão que mais recebe emprestimos do banco? 
+
+```{r, message=FALSE, warning=FALSE}
+dados_job <- dados %>%
+            group_by(job, y) %>%
+            summarise(qtd = n())
+
+
+ggplot(data=dados_job,
+      aes(x=reorder(job, job), y=qtd, fill=y)) +
+ geom_bar(stat="identity") +
+ labs(y='', x='Job', title = "Número de vezes de sucesso/não sucesso") +
+ theme_classic() +
+ theme(axis.ticks = element_blank())  + 
+  coord_flip()
+
+```
+
+Quando olhamos para números absolutos a profissão que mais recebe emprestimos é a management.
+
+##### Insight 3
+Será que esse rank se mantém se a gente levar em conta a quantidade de correntistas pela quantidade de emprestimos oferecidos?
+
+```{r, message=FALSE, warning=FALSE}
+dados_true <- dados %>% filter(y == 'yes')
+dados_false <- dados %>% filter(y == 'no')
+
+
+group_true <- dados_true %>% group_by(job) %>% summarise(qtd = n())
+group_false <- dados_false %>% group_by(job) %>% summarise(qtd_false = n())
+
+
+join_dados <- left_join(group_true, group_false, by = "job")
+
+
+join_dados$prop <- 100.0*join_dados$qtd/(join_dados$qtd+join_dados$qtd_false)
+
+# Job com mais emprestimos 
+job_emprestimo <- tail(join_dados[order(join_dados$prop),], 1)$job
+
+join_dados[order(-join_dados$prop),]
+```
+
+Proporcionalmente a profissão student é a que mais tem tendência de realizar um emprestimo.
+
+##### Insight 4
+
+Agora que já sabemos qual a profissão que mais realiza emprestimo podemos olhar mais no detalhe e descobrir qual é a forma de contato preferida desse subgrupo
+
+```{r, message=FALSE, warning=FALSE}
+# Job com mais emprestimos 
+dados_job <- dados %>% filter(job == 'student')
+
+
+group_emprestimo <- dados_job %>%
+            group_by(contact, y) %>%
+            summarise(qtd = n())
+
+
+ggplot(data=group_emprestimo,
+      aes(x=reorder(contact, contact), y=qtd, fill=y)) +
+ geom_bar(stat="identity") +
+ labs(y='', x='Contato', title = "Número de vezes de sucesso/não sucesso") +
+ theme_classic() +
+ theme(axis.ticks = element_blank())  + 
+  coord_flip()
+```
+
+
+A grande maioria dos student foi contactado pelo celular
+
+##### Insight 5
+Muitas vezes os correntistas são abordados diversas vezes até realizar um emprestimo, quando observamos o número de contatos temos a seguinte distribuição
+
+
+```{r, message=FALSE, warning=FALSE}
+group_campaign <- dados %>%
+            group_by(campaign, y) %>%
+            summarise(qtd = n())
+
+
+ggplot(data=group_campaign,
+      aes(x=reorder(campaign, campaign), y=qtd, fill=y)) +
+ geom_bar(stat="identity") +
+ labs(y='', x='Contatos', title = "Número de vezes de contato") +
+ theme_classic() +
+ theme(axis.ticks = element_blank()) 
+```
+
+A grande maioria é contatada apenas uma vez. Além disso, é possível observar que a taxa de sucesso cai pela metade, em média, quando aumentamos a quantidade de contatos. Depois de 8 contatos a taxa de sucesso já é bem próximo a zero. 
+
+##### Insight 6
+Será que ligar apenas uma vez é o suficiente?
+
+```{r, message=FALSE, warning=FALSE}
+dados_true <- dados %>% filter(y == 'yes')
+
+boxplot(dados_true$campaign, data=dados_true$campaign, main="ligações", ylab="Qtd Contato")
+```
+
+Observando a distribuição dos dados em relação a quantidade de ligações, notamos que existem muitos outliers. Além disso, notamos que com cerca de 3 ligações já pegamos 75% de todos os casos de sucesso. 
+
+
+Olhando mais no detalhe os dados temos:
+
+```{r, message=FALSE, warning=FALSE}
+summary(dados_true$campaign)
+```
+
+O número ideal de ligação é 3 vezes, porém para casos especiais é valido ligar até 5 vezes. O ideal é entre as ligações
+
+##### Insight 7
+A base toda possui 17 variáveis, será que todas essas informações são úteis e podem ajudar a gente a decidir quando o banco deve oferencer um emprestimo?
+
+Ao rodar uma regressão logística temos:
+
+```{r, message=FALSE, warning=FALSE}
+treino_labels = dados[, 17] ## Classes das instâncias de treino
+treino = dados[-c(17)] ## Exclui variável alvo
+
+glmFit <- train(treino, treino_labels, method= "glm") 
+
+summary(glmFit)
+```
+
+
+As informações de campanha anterior tem relevância no resultado da campanha atual, como podemos notar no resultado da regressão. 
+Por outro lado, as informações pdays, previous, defaultyes e age não tem relavância para o sucesso do emprestimo ou não
+
+##### Insight 8
+
+Olhando agora para empréstimo imobiliário, podemos notar que essas pessoas tem algumas características proeminentes
+
+```{r, message=FALSE, warning=FALSE}
+dados_housing <- dados %>% filter(housing == 'yes')
+
+summary(dados_housing)
+```
+
+Na sua grande maioria elas tem até 45 anos, trabalham como blue-collar, são casadas e possui o secondary
+
+##### Insight 9
+
+Algumas pessoas já tem um crédito pré aprovado junto ao banco. Será que essas pessoas tem muito dinheiro no banco e por essa razão já possui esse emprestimo? 
+
+```{r, message=FALSE, warning=FALSE}
+dados_credit <- dados %>% filter(default == 'yes')
+dados_no_credit <- dados %>% filter(default == 'no')
+
+credit <- data.frame(balance = dados_credit$balance)
+no_credit <- data.frame(balance =  dados_no_credit$balance)
+
+credit$tipo <- 'credit'
+no_credit$tipo <- 'no_credit'
+
+hist_credit <- rbind(credit, no_credit)
+
+ggplot(hist_credit, aes(balance, fill = tipo)) + geom_density(alpha = 0.2)
+```
+
+É possível observar que não. Tanto as pessoas que tem o crédio pre aprovado, quanto aquelas que não tem esse crédio, possui uma distribuição bem similar. 
+
+
+
+
+
+
